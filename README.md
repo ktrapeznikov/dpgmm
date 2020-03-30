@@ -32,3 +32,6 @@ yhat = model.fit_predict(x, sample_weight=sample_weight)
 ```
 ### True vs Inferred Clusters
 ![True vs Inferred Clusters](imgs/sample.png)
+
+
+

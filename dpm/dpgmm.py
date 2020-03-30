@@ -5,16 +5,19 @@ from sklearn.exceptions import ConvergenceWarning
 from sklearn.mixture import BayesianGaussianMixture
 import numpy as np
 from sklearn.mixture._base import _check_X
-
-
-# model = BayesianGaussianMixture()
-# model.fit_predict()
+from logging import getLogger
+from sklearn.mixture._bayesian_mixture import _log_wishart_norm, _log_dirichlet_norm
+from sklearn.mixture._gaussian_mixture import _compute_log_det_cholesky
+from scipy.special import betaln
 from sklearn.utils import check_random_state
+
+logger = getLogger(__name__)
 
 
 class WeightedDPGMM(BayesianGaussianMixture):
     def fit_predict(self, X, y=None, sample_weight: np.ndarray = None):
         if sample_weight is None:
+            logger.warning("no sample weights provided .. use unweighted model instead")
             return super().fit_predict(X, y=None)
         """Estimate model parameters using X and predict the labels for X.
 
@@ -73,7 +76,7 @@ class WeightedDPGMM(BayesianGaussianMixture):
                 log_prob_norm, log_resp = self._e_step(X)
                 self._m_step(X, log_resp + log_sample_weight)
                 lower_bound = self._compute_lower_bound(
-                    log_resp, log_prob_norm)
+                    log_resp, log_prob_norm, sample_weight)
 
                 change = lower_bound - prev_lower_bound
                 self._print_verbose_msg_iter_end(n_iter, change)
@@ -135,3 +138,54 @@ class WeightedDPGMM(BayesianGaussianMixture):
         resp = sample_weight[:, np.newaxis] * resp
 
         self._initialize(X, resp)
+
+    def _compute_lower_bound(self, log_resp, log_prob_norm, counts):
+        """Estimate the lower bound of the model.
+
+        The lower bound on the likelihood (of the training data with respect to
+        the model) is used to detect the convergence and has to decrease at
+        each iteration.
+
+        Parameters
+        ----------
+        X : array-like, shape (n_samples, n_features)
+
+        log_resp : array, shape (n_samples, n_components)
+            Logarithm of the posterior probabilities (or responsibilities) of
+            the point of each sample in X.
+
+        log_prob_norm : float
+            Logarithm of the probability of each sample in X.
+
+        Returns
+        -------
+        lower_bound : float
+        """
+        # Contrary to the original formula, we have done some simplification
+        # and removed all the constant terms.
+        n_features, = self.mean_prior_.shape
+
+        # We removed `.5 * n_features * np.log(self.degrees_of_freedom_)`
+        # because the precision matrix is normalized.
+        log_det_precisions_chol = (_compute_log_det_cholesky(
+            self.precisions_cholesky_, self.covariance_type, n_features) -
+                                   .5 * n_features * np.log(self.degrees_of_freedom_))
+
+        if self.covariance_type == 'tied':
+            log_wishart = self.n_components * np.float64(_log_wishart_norm(
+                self.degrees_of_freedom_, log_det_precisions_chol, n_features))
+        else:
+            log_wishart = np.sum(_log_wishart_norm(
+                self.degrees_of_freedom_, log_det_precisions_chol, n_features))
+
+        if self.weight_concentration_prior_type == 'dirichlet_process':
+            log_norm_weight = -np.sum(betaln(self.weight_concentration_[0],
+                                             self.weight_concentration_[1]))
+        else:
+            log_norm_weight = _log_dirichlet_norm(self.weight_concentration_)
+
+        H_resp = (np.exp(log_resp) * log_resp).sum(1).dot(counts)
+
+        return (-H_resp -
+                log_wishart - log_norm_weight -
+                0.5 * n_features * np.sum(np.log(self.mean_precision_)))
