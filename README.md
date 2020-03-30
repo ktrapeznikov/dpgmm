@@ -39,6 +39,52 @@ Distribution over 20 trials. As we expect, each iteration is proportional to the
 
 This is with the following model parameters: `max_iter=1000, tol=1e-6, covariance_type="diag"`
 
+```python
+from timeit import timeit
+
+tol = 1e-6
+num_iters = 1000
+cov_type = "diag"
+
+def run_model(x,w,seed):
+    model = WeightedDPGMM(n_components=20, verbose=0, max_iter=num_iters, tol=tol, covariance_type=cov_type,random_state=seed)
+    labels = model.fit_predict(x, sample_weight=w)
+    
+def run_model_unweighted(x,seed):
+    model = BayesianGaussianMixture(n_components=20, verbose=0, max_iter=num_iters, tol=tol, covariance_type=cov_type,random_state=seed)
+    labels = model.fit_predict(x)
+    
+def time_model(x,w=None,kind="weighted",number = 1, seed = None):
+    
+    if kind == "weighted":
+        dt =  timeit(lambda: run_model(x,w,seed),number=number)
+    else:
+        dt =  timeit(lambda: run_model_unweighted(x,seed),number=number)
+        
+    return dict(dt = dt/number, kind=kind, size = len(x))
+
+out = []
+r = 0
+seed=None
+x_df = make_data()
+
+for i in tqdm.trange(50):
+    for num_points in tqdm.tqdm(np.logspace(3,4,30),leave=False):
+        x_sample = x_df.sample(int(num_points))
+        x = x_sample.loc[:,["x","y"]].values
+        o = time_model(x,w=None,kind="unweighted",seed= seed)
+        o["og_size"] = int(num_points)
+        out.append(o)
+
+        x_df_rounded = x_sample.round(r).groupby(["x","y"]).size().to_frame("weight").reset_index()
+        x = x_df_rounded.loc[:,["x","y"]].values
+        w = x_df_rounded.loc[:,"weight"].values
+        o = time_model(x,w=w,kind="weighted",seed = seed)
+        o["og_size"] = int(num_points)
+        out.append(o)
+
+```
+
 [run time test notebook](runtime_test.ipynb)
 
 ![True vs Inferred Clusters](imgs/runtime.png)
