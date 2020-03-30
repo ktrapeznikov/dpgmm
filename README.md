@@ -4,6 +4,7 @@ This repo extends [sklearn.mixture.BayesianGaussianMixture](https://scikit-learn
 Complies with `sklearn.fit` API
 -  `sample_weight` is a vector, same length as `X`. It must be `>=1` corresponding to duplicates or counts of observations otherwise the GMM model does not make sense.
 
+[example notebook](example.ipynb)
 
 ```python
 import numpy as np
@@ -32,6 +33,17 @@ yhat = model.fit_predict(x, sample_weight=sample_weight)
 ```
 ### True vs Inferred Clusters
 ![True vs Inferred Clusters](imgs/sample.png)
+
+### Run Time Comparison to Regular Unweighted Implementation
+Distribution over 20 trials. As we expect, each iteration is proportional to the number of samples. So if we bin the input then we get a speed up. More input points and larger bin sizes result in more gains (with loss of accuracy obvi). 
+
+This is with the following model parameters: `max_iter=1000, tol=1e-6, covariance_type="diag"`
+
+[run time test notebook](runtime_test.ipynb)
+
+![True vs Inferred Clusters](imgs/runtime.png)
+
+
 
 
 
